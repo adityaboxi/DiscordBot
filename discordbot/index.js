@@ -88,7 +88,7 @@ async function handleMessage(message) {
     return message.reply(`Here is your short URL: ${url}`);
   }
 
-   if (content === 'delete chat') {
+   if (content.toLowercase() === 'delete chat') {
     if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
       return message.reply(' You do not have permission to delete messages.');
     }
