@@ -5,6 +5,7 @@ const { Client, GatewayIntentBits, Events, PermissionFlagsBits } = require('disc
 const Groq = require('groq-sdk');
 
 // --- KEEP-ALIVE SERVER START ---
+const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
