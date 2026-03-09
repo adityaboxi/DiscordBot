@@ -3,49 +3,47 @@ require('dotenv').config();
 
 const { Client, GatewayIntentBits, Events, PermissionFlagsBits } = require('discord.js');
 const Groq = require('groq-sdk');
-
-// --- KEEP-ALIVE SERVER START ---
 const express = require('express');
+
+// --- INITIALIZATION ---
 const app = express();
 const PORT = process.env.PORT || 3000;
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-app.get('/', (req, res) => {
-  res.send('Bot is online and healthy!');
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
-app.listen(PORT, () => {
-  console.log(`[INFO] Keep-alive server listening on port ${PORT}`);
-});
-// --- KEEP-ALIVE SERVER END ---
-const REQUIRED_ENV = ['DISCORD_TOKEN', 'GROQ_API_KEY'];
-for (const key of REQUIRED_ENV) {
-  if (!process.env[key]) {
-    console.error(`[FATAL] Missing required environment variable: ${key}`);
-    process.exit(1);
-  }
-}
-
-
+// --- CONFIGURATION ---
 const CONFIG = {
   maxTokens:       parseInt(process.env.MAX_TOKENS, 10)             || 500,
   maxReplyLength:  parseInt(process.env.REPLY_MAX_LENGTH, 10)       || 1900,
-  bulkDeleteLimit: parseInt(process.env.BULK_DELETE_LIMIT, 10)      || 100,
-  typingCooldown:  parseInt(process.env.TYPING_COOLDOWN_MS, 10)     || 3000,
-  rateLimitMax:    parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 10,
-  rateLimitWindow: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10)   || 60_000,
-  isProd:          process.env.NODE_ENV === 'production',
+  bulkDeleteLimit: 100, // Discord limit per request
+  rateLimitMax:    10,
+  rateLimitWindow: 60_000,
 };
 
+const STATIC_REPLIES = new Map([
+  ['hello', 'ok'],
+  ['i4u',   'i love you too🥰'],
+  ['name?', 'Discordbot'],
+  ['gf?',   'gemini🥰'],
+]);
+
+// Helper for slowing down loops to avoid API spam
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const logger = {
   info:  (...args) => console.log (`[INFO]  ${new Date().toISOString()}`, ...args),
-  warn:  (...args) => console.warn (`[WARN]  ${new Date().toISOString()}`, ...args),
   error: (...args) => console.error(`[ERROR] ${new Date().toISOString()}`, ...args),
 };
 
-
+// --- RATE LIMITING ---
 const rateLimitMap = new Map();
-
 function isRateLimited(userId) {
   const now = Date.now();
   const userData = rateLimitMap.get(userId) || { count: 0, resetAt: now + CONFIG.rateLimitWindow };
@@ -60,24 +58,7 @@ function isRateLimited(userId) {
   return userData.count > CONFIG.rateLimitMax;
 }
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-});
-
-const STATIC_REPLIES = new Map([
-  ['hello',  'ok'],
-   ['i4u',  'i love you too🥰'],
-  ['name?',          'Discordbot'],
-  ['gf?',            'gemini🥰'],
-]);
-
+// --- CORE FUNCTIONS ---
 async function getGroqReply(userMessage) {
   const response = await groq.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
@@ -91,91 +72,83 @@ async function getGroqReply(userMessage) {
     : text;
 }
 
-
 async function handleMessage(message) {
   const content = message.content.toLowerCase().trim();
 
-
+  // 1. Static Replies
   if (STATIC_REPLIES.has(content)) {
-    return message.reply(STATIC_REPLIES.get(content));
+    return await message.reply(STATIC_REPLIES.get(content));
   }
 
-
-  if (message.content.startsWith('create ')) {
-    const url = message.content.slice('create '.length).trim();
-    if (!url) return message.reply('Please provide a URL after `create`.');
-    return message.reply(`Here is your short URL: ${url}`);
+  // 2. Short URL Simulation
+  if (content.startsWith('create ')) {
+    const url = content.slice(7).trim();
+    if (!url) return await message.reply('Please provide a URL.');
+    return await message.reply(`Here is your short URL: ${url}`);
   }
 
- 
+  // 3. Delete Chat Logic (The problematic part)
   if (content === 'delete chat') {
     if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-      return message.reply(' You do not have permission to delete messages.');
+      return await message.reply('❌ You lack `Manage Messages` permissions.');
     }
+
     try {
+      let deletedCount = 0;
       let deleted;
+
+      // Logic: Loop until no more messages can be bulk deleted
       do {
+        // filterOld: true is CRITICAL. It ignores messages > 14 days old.
         deleted = await message.channel.bulkDelete(CONFIG.bulkDeleteLimit, true);
+        deletedCount += deleted.size;
+        
+        // Wait 1 second between batches to avoid Discord Rate Limits
+        if (deleted.size >= 2) await sleep(1500); 
+
       } while (deleted.size >= 2);
-      const confirm = await message.channel.send('Chat cleared!');
-      setTimeout(() => confirm.delete().catch(() => {}), CONFIG.typingCooldown);
+
+      const confirm = await message.channel.send(`✅ Cleared ${deletedCount} messages. (Note: Messages older than 14 days cannot be deleted)`);
+      
+      // Corrected Async Timeout
+      setTimeout(async () => {
+        try { await confirm.delete(); } catch (e) { /* Already deleted */ }
+      }, 5000);
+
     } catch (err) {
       logger.error('bulkDelete failed:', err);
-      await message.channel.send(' Failed to delete messages.').catch(() => {});
+      await message.channel.send('⚠️ I failed to delete messages. Check my role permissions.');
     }
     return;
   }
 
-
+  // 4. Rate Limiting check
   if (isRateLimited(message.author.id)) {
-    return message.reply(' You\'re sending too many messages. Please slow down!');
+    return await message.reply('⚠️ Slow down! You are being rate limited.');
   }
 
-
+  // 5. AI Groq Response
   try {
     await message.channel.sendTyping();
     const reply = await getGroqReply(message.content);
     await message.reply(reply);
   } catch (err) {
-    logger.error('Groq request failed:', err);
-    await message.reply(' Sorry, I couldn\'t process that right now. Try again later!');
+    logger.error('Groq Error:', err);
+    await message.reply('I am having trouble thinking right now. Try again later!');
   }
 }
 
-
-client.once(Events.ClientReady, (c) => {
-  logger.info(`Bot online as ${c.user.tag} | Guilds: ${c.guilds.cache.size}`);
-});
+// --- SERVER & EVENTS ---
+app.get('/', (req, res) => res.send('Bot is active.'));
+app.listen(PORT, () => logger.info(`Keep-alive server on port ${PORT}`));
 
 client.on(Events.MessageCreate, async (message) => {
-  if (message.author.bot) return;
-  if (!message.guild) return;
-
-  try {
-    await handleMessage(message);
-  } catch (err) {
-    logger.error('Unhandled error in messageCreate:', err);
-  }
+  if (message.author.bot || !message.guild) return;
+  await handleMessage(message);
 });
 
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName === 'ping') {
-    await interaction.reply({ content: '🏓 Pong!', ephemeral: true });
-  }
+client.once(Events.ClientReady, (c) => {
+  logger.info(`Logged in as ${c.user.tag}`);
 });
-
-
-async function shutdown(signal) {
-  logger.info(`Received ${signal}. Shutting down...`);
-  client.destroy();
-  process.exit(0);
-}
-
-process.on('SIGINT',  () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-
-process.on('unhandledRejection', (err) => logger.error('Unhandled rejection:', err));
-process.on('uncaughtException',  (err) => { logger.error('Uncaught exception:', err); process.exit(1); });
 
 client.login(process.env.DISCORD_TOKEN);
