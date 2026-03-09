@@ -4,7 +4,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Events, PermissionFlagsBits } = require('discord.js');
 const Groq = require('groq-sdk');
 
-// ─── Validate Env ─────────────────────────────────────────────────────────────
+
 const REQUIRED_ENV = ['DISCORD_TOKEN', 'GROQ_API_KEY'];
 for (const key of REQUIRED_ENV) {
   if (!process.env[key]) {
@@ -13,7 +13,7 @@ for (const key of REQUIRED_ENV) {
   }
 }
 
-// ─── Config ───────────────────────────────────────────────────────────────────
+
 const CONFIG = {
   maxTokens:       parseInt(process.env.MAX_TOKENS, 10)             || 500,
   maxReplyLength:  parseInt(process.env.REPLY_MAX_LENGTH, 10)       || 1900,
@@ -24,14 +24,14 @@ const CONFIG = {
   isProd:          process.env.NODE_ENV === 'production',
 };
 
-// ─── Logger ───────────────────────────────────────────────────────────────────
+
 const logger = {
   info:  (...args) => console.log (`[INFO]  ${new Date().toISOString()}`, ...args),
   warn:  (...args) => console.warn (`[WARN]  ${new Date().toISOString()}`, ...args),
   error: (...args) => console.error(`[ERROR] ${new Date().toISOString()}`, ...args),
 };
 
-// ─── Rate Limiter ─────────────────────────────────────────────────────────────
+
 const rateLimitMap = new Map();
 
 function isRateLimited(userId) {
@@ -48,10 +48,9 @@ function isRateLimited(userId) {
   return userData.count > CONFIG.rateLimitMax;
 }
 
-// ─── Groq Client ──────────────────────────────────────────────────────────────
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// ─── Discord Client ───────────────────────────────────────────────────────────
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -60,14 +59,13 @@ const client = new Client({
   ],
 });
 
-// ─── Static Replies ───────────────────────────────────────────────────────────
 const STATIC_REPLIES = new Map([
-  ['do you like me', 'i like you too aditya'],
-  ['name?',          'Discordbot made by aditya'],
+  ['hello',  'ok'],
+   ['i4u',  'i love you too🥰'],
+  ['name?',          'Discordbot'],
   ['gf?',            'gemini🥰'],
 ]);
 
-// ─── Groq Handler ─────────────────────────────────────────────────────────────
 async function getGroqReply(userMessage) {
   const response = await groq.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
@@ -81,58 +79,58 @@ async function getGroqReply(userMessage) {
     : text;
 }
 
-// ─── Message Handler ──────────────────────────────────────────────────────────
+
 async function handleMessage(message) {
   const content = message.content.toLowerCase().trim();
 
-  // Static replies
+
   if (STATIC_REPLIES.has(content)) {
     return message.reply(STATIC_REPLIES.get(content));
   }
 
-  // URL shortener
+
   if (message.content.startsWith('create ')) {
     const url = message.content.slice('create '.length).trim();
     if (!url) return message.reply('Please provide a URL after `create`.');
     return message.reply(`Here is your short URL: ${url}`);
   }
 
-  // Delete chat — ✅ fixed: was content.toLowercase()
+ 
   if (content === 'delete chat') {
     if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-      return message.reply('❌ You do not have permission to delete messages.');
+      return message.reply(' You do not have permission to delete messages.');
     }
     try {
       let deleted;
       do {
         deleted = await message.channel.bulkDelete(CONFIG.bulkDeleteLimit, true);
       } while (deleted.size >= 2);
-      const confirm = await message.channel.send('✅ Chat cleared!');
+      const confirm = await message.channel.send('Chat cleared!');
       setTimeout(() => confirm.delete().catch(() => {}), CONFIG.typingCooldown);
     } catch (err) {
       logger.error('bulkDelete failed:', err);
-      await message.channel.send('❌ Failed to delete messages.').catch(() => {});
+      await message.channel.send(' Failed to delete messages.').catch(() => {});
     }
     return;
   }
 
-  // Rate limit check
+
   if (isRateLimited(message.author.id)) {
-    return message.reply('⏳ You\'re sending too many messages. Please slow down!');
+    return message.reply(' You\'re sending too many messages. Please slow down!');
   }
 
-  // AI reply
+
   try {
     await message.channel.sendTyping();
     const reply = await getGroqReply(message.content);
     await message.reply(reply);
   } catch (err) {
     logger.error('Groq request failed:', err);
-    await message.reply('⚠️ Sorry, I couldn\'t process that right now. Try again later!');
+    await message.reply(' Sorry, I couldn\'t process that right now. Try again later!');
   }
 }
 
-// ─── Events ───────────────────────────────────────────────────────────────────
+
 client.once(Events.ClientReady, (c) => {
   logger.info(`Bot online as ${c.user.tag} | Guilds: ${c.guilds.cache.size}`);
 });
@@ -155,7 +153,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// ─── Graceful Shutdown ────────────────────────────────────────────────────────
+
 async function shutdown(signal) {
   logger.info(`Received ${signal}. Shutting down...`);
   client.destroy();
@@ -165,9 +163,7 @@ async function shutdown(signal) {
 process.on('SIGINT',  () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-// ─── Unhandled Errors ─────────────────────────────────────────────────────────
 process.on('unhandledRejection', (err) => logger.error('Unhandled rejection:', err));
 process.on('uncaughtException',  (err) => { logger.error('Uncaught exception:', err); process.exit(1); });
 
-// ─── Launch ───────────────────────────────────────────────────────────────────
 client.login(process.env.DISCORD_TOKEN);
