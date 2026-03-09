@@ -4,7 +4,18 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Events, PermissionFlagsBits } = require('discord.js');
 const Groq = require('groq-sdk');
 
+// --- KEEP-ALIVE SERVER START ---
+const app = express();
+const PORT = process.env.PORT || 3000;
 
+app.get('/', (req, res) => {
+  res.send('Bot is online and healthy!');
+});
+
+app.listen(PORT, () => {
+  console.log(`[INFO] Keep-alive server listening on port ${PORT}`);
+});
+// --- KEEP-ALIVE SERVER END ---
 const REQUIRED_ENV = ['DISCORD_TOKEN', 'GROQ_API_KEY'];
 for (const key of REQUIRED_ENV) {
   if (!process.env[key]) {
