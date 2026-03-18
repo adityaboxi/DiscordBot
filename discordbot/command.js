@@ -1,10 +1,8 @@
 
-
-
 'use strict';
 require('dotenv').config();
 
-const { REST, Routes } = require('discord.js');
+const { REST, Routes, ApplicationCommandOptionType, PermissionFlagsBits } = require('discord.js');
 
 // ─── Validate Env ─────────────────────────────────────────────────────────────
 const REQUIRED_ENV = ['DISCORD_TOKEN', 'CLIENT_ID'];
@@ -31,7 +29,7 @@ const commands = [
       {
         name: 'url',
         description: 'The URL to shorten',
-        type: 3,      // STRING
+        type: ApplicationCommandOptionType.String,  // was magic number 3
         required: true,
       },
     ],
@@ -40,7 +38,7 @@ const commands = [
     name: 'delete-chat',
     description: 'Delete all messages in this channel (requires Manage Messages)',
     // No options — just run it
-    default_member_permissions: String(1 << 13), // ManageMessages bit — hides command from users without the perm
+    default_member_permissions: String(PermissionFlagsBits.ManageMessages), // was raw bit shift (1 << 13)
   },
 ];
 
