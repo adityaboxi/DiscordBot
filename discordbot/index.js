@@ -1,9 +1,6 @@
 
 
 
-
-
-
 'use strict';
 require('dotenv').config();
 
@@ -93,7 +90,7 @@ async function deleteAllMessages(channel) {
   do {
     deleted = await channel.bulkDelete(CONFIG.bulkDeleteLimit, true);
     totalDeleted += deleted.size;
-  } while (deleted.size >= 2);
+  } while (deleted.size > 0);
   return totalDeleted;
 }
 
@@ -111,9 +108,9 @@ async function handleMessage(message) {
     return message.reply(STATIC_REPLIES.get(content));
   }
 
-  // URL shortener stub
-  if (message.content.startsWith('create ')) {
-    const url = message.content.slice('create '.length).trim();
+  // URL shortener stub (text fallback — /create slash command is the primary path)
+  if (content.startsWith('create ')) {
+    const url = content.slice('create '.length).trim();
     if (!url) return message.reply('Please provide a URL after `create`.');
     return message.reply(`Here is your short URL: ${url}`);
   }
@@ -172,6 +169,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
   // ── /ping ──────────────────────────────────────────────────────────────────
   if (interaction.commandName === 'ping') {
     await interaction.reply({ content: '🏓 Pong!', ephemeral: true });
+    return;
+  }
+
+  // ── /create ────────────────────────────────────────────────────────────────
+  if (interaction.commandName === 'create') {
+    const url = interaction.options.getString('url');
+    if (!url) {
+      return interaction.reply({ content: '❌ Please provide a valid URL.', ephemeral: true });
+    }
+    // Stub — replace with real URL shortener logic if needed
+    await interaction.reply(`🔗 Here is your short URL: ${url}`);
     return;
   }
 
