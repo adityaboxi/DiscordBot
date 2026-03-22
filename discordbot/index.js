@@ -1,5 +1,8 @@
 
 
+
+
+
 'use strict';
 require('dotenv').config();
 
@@ -17,12 +20,13 @@ for (const key of REQUIRED_ENV) {
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const CONFIG = {
-  maxTokens:      parseInt(process.env.MAX_TOKENS, 10)             || 500,
-  maxReplyLength: parseInt(process.env.REPLY_MAX_LENGTH, 10)       || 1900,
-  bulkDeleteLimit:parseInt(process.env.BULK_DELETE_LIMIT, 10)      || 100,
-  typingCooldown: parseInt(process.env.TYPING_COOLDOWN_MS, 10)     || 3000,
-  rateLimitMax:   parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 10,
-  rateLimitWindow:parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10)   || 60_000,
+  prefix:         process.env.BOT_PREFIX                           || '!',
+  maxTokens:      parseInt(process.env.MAX_TOKENS, 10)            || 500,
+  maxReplyLength: parseInt(process.env.REPLY_MAX_LENGTH, 10)      || 1900,
+  bulkDeleteLimit:parseInt(process.env.BULK_DELETE_LIMIT, 10)     || 100,
+  confirmMsgTTL:  parseInt(process.env.TYPING_COOLDOWN_MS, 10)    || 3000,
+  rateLimitMax:   parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10)|| 10,
+  rateLimitWindow:parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10)  || 60_000,
   isProd:         process.env.NODE_ENV === 'production',
 };
 
@@ -37,21 +41,38 @@ const logger = {
 const rateLimitMap = new Map();
 
 function isRateLimited(userId) {
-  const now = Date.now();
-  const userData = rateLimitMap.get(userId) || { count: 0, resetAt: now + CONFIG.rateLimitWindow };
+  const now      = Date.now();
+  const entry    = rateLimitMap.get(userId) ?? { count: 0, resetAt: now + CONFIG.rateLimitWindow };
 
-  if (now > userData.resetAt) {
-    userData.count = 0;
-    userData.resetAt = now + CONFIG.rateLimitWindow;
+  if (now > entry.resetAt) {
+    entry.count   = 0;
+    entry.resetAt = now + CONFIG.rateLimitWindow;
   }
 
-  userData.count++;
-  rateLimitMap.set(userId, userData);
-  return userData.count > CONFIG.rateLimitMax;
+  entry.count++;
+  rateLimitMap.set(userId, entry);
+  return entry.count > CONFIG.rateLimitMax;
 }
 
 // ─── Groq Client ─────────────────────────────────────────────────────────────
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+// ─── In-memory conversation history per user (optional context window) ────────
+// Keeps the last N turns so the AI has short-term memory within a session.
+const MAX_HISTORY = 10; // pairs (user + assistant)
+const conversationHistory = new Map(); // userId → Message[]
+
+function getHistory(userId) {
+  if (!conversationHistory.has(userId)) conversationHistory.set(userId, []);
+  return conversationHistory.get(userId);
+}
+
+function pushHistory(userId, role, content) {
+  const history = getHistory(userId);
+  history.push({ role, content });
+  // Keep only the last MAX_HISTORY messages (each turn = 2 entries)
+  if (history.length > MAX_HISTORY * 2) history.splice(0, 2);
+}
 
 // ─── Discord Client ───────────────────────────────────────────────────────────
 const client = new Client({
@@ -63,82 +84,128 @@ const client = new Client({
 });
 
 // ─── Static Replies ───────────────────────────────────────────────────────────
+// Keys are already lowercase; handleMessage normalises input before lookup.
 const STATIC_REPLIES = new Map([
-  ['do you like me', 'i like you too aditya'],
-  ['name?',          'Discordbot made by aditya'],
-  ['gf?',            'gemini🥰'],
+  ['do you like me', 'of course! 😊'],
+  ['name?',          'I\'m a Discord bot. Use /ping or just chat with me!'],
+  ['gf?',            'gemini 🥰'],
 ]);
 
-// ─── Groq Handler ─────────────────────────────────────────────────────────────
-async function getGroqReply(userMessage) {
+// ─── Groq AI Handler ──────────────────────────────────────────────────────────
+async function getGroqReply(userId, userMessage) {
+  pushHistory(userId, 'user', userMessage);
+
   const response = await groq.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
-    messages: [{ role: 'user', content: userMessage }],
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are a helpful, friendly Discord bot. ' +
+          'Keep responses concise and suitable for chat. ' +
+          'Avoid markdown that Discord cannot render (e.g. LaTeX).',
+      },
+      ...getHistory(userId),
+    ],
     max_tokens: CONFIG.maxTokens,
   });
+
   const text = response.choices?.[0]?.message?.content ?? 'No response received.';
-  return text.length > CONFIG.maxReplyLength
-    ? text.substring(0, CONFIG.maxReplyLength) + '...'
+  const trimmed = text.length > CONFIG.maxReplyLength
+    ? text.substring(0, CONFIG.maxReplyLength) + '…'
     : text;
+
+  pushHistory(userId, 'assistant', trimmed);
+  return trimmed;
 }
 
-// ─── Core Delete Logic (shared by message + slash command) ───────────────────
+// ─── URL Shortener (using tinyurl public API — no key required) ───────────────
+async function shortenUrl(longUrl) {
+  // Validate URL shape before sending to external service
+  try { new URL(longUrl); } catch { return null; }
+
+  const api = `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`;
+  const res  = await fetch(api);           // Node 18+ has built-in fetch
+  if (!res.ok) throw new Error(`TinyURL returned HTTP ${res.status}`);
+  const short = await res.text();
+  return short.trim();
+}
+
+// ─── Core Delete Logic (shared by message command + slash command) ─────────────
 async function deleteAllMessages(channel) {
   let totalDeleted = 0;
-  let deleted;
+  let batch;
   do {
-    deleted = await channel.bulkDelete(CONFIG.bulkDeleteLimit, true);
-    totalDeleted += deleted.size;
-  } while (deleted.size > 0);
+    // bulkDelete only works on messages < 14 days old; filterOld=true skips older ones
+    batch          = await channel.bulkDelete(CONFIG.bulkDeleteLimit, true);
+    totalDeleted  += batch.size;
+  } while (batch.size > 0);
   return totalDeleted;
 }
 
 // ─── Message Handler ──────────────────────────────────────────────────────────
 async function handleMessage(message) {
-  // Strip out any bot mention prefix so "reply" usage works cleanly
-  // e.g. if someone replies to a bot message and types "delete chat"
-  const content = message.content
-    .replace(`<@${client.user.id}>`, '')
-    .toLowerCase()
-    .trim();
+  const mentionPrefix = `<@${client.user.id}>`;
+  const raw           = message.content.trim();
 
-  // Static replies — no rate limit needed
-  if (STATIC_REPLIES.has(content)) {
-    return message.reply(STATIC_REPLIES.get(content));
+  // ── Determine whether this message is addressed to the bot ────────────────
+  // Accept:  !command …   OR   @BotMention command …
+  let content;
+  if (raw.startsWith(CONFIG.prefix)) {
+    content = raw.slice(CONFIG.prefix.length).trim();
+  } else if (raw.startsWith(mentionPrefix)) {
+    content = raw.slice(mentionPrefix.length).trim();
+  } else {
+    // Message is not for the bot — ignore it entirely
+    return;
   }
 
-  // URL shortener stub (text fallback — /create slash command is the primary path)
-  if (content.startsWith('create ')) {
-    const url = content.slice('create '.length).trim();
-    if (!url) return message.reply('Please provide a URL after `create`.');
-    return message.reply(`Here is your short URL: ${url}`);
+  const lower = content.toLowerCase();
+
+  // ── Static replies ────────────────────────────────────────────────────────
+  if (STATIC_REPLIES.has(lower)) {
+    return message.reply(STATIC_REPLIES.get(lower));
   }
 
-  // Delete chat — works whether sent normally OR as a reply to another message
-  if (content === 'delete chat') {
+  // ── !delete chat ──────────────────────────────────────────────────────────
+  if (lower === 'delete chat') {
     if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
       return message.reply('❌ You do not have permission to delete messages.');
     }
     try {
       await deleteAllMessages(message.channel);
       const confirm = await message.channel.send('✅ Chat cleared!');
-      setTimeout(() => confirm.delete().catch(() => {}), CONFIG.typingCooldown);
+      setTimeout(() => confirm.delete().catch(() => {}), CONFIG.confirmMsgTTL);
     } catch (err) {
-      logger.error('bulkDelete failed:', err);
+      logger.error('bulkDelete (message) failed:', err);
       await message.channel.send('❌ Failed to delete messages.').catch(() => {});
     }
     return;
   }
 
-  // Rate limit check before hitting Groq
+  // ── !create <url> — shorten a URL ─────────────────────────────────────────
+  if (lower.startsWith('create ')) {
+    const url = content.slice('create '.length).trim();
+    if (!url) return message.reply('Please provide a URL after `create`. Example: `!create https://example.com`');
+    try {
+      const short = await shortenUrl(url);
+      if (!short) return message.reply('❌ That doesn\'t look like a valid URL.');
+      return message.reply(`🔗 Short URL: ${short}`);
+    } catch (err) {
+      logger.error('URL shortener failed:', err);
+      return message.reply('❌ Could not shorten that URL right now. Try again later.');
+    }
+  }
+
+  // ── Rate-limit check (before the expensive Groq call) ─────────────────────
   if (isRateLimited(message.author.id)) {
     return message.reply('⏳ You\'re sending too many messages. Please slow down!');
   }
 
-  // AI reply
+  // ── Groq AI reply ──────────────────────────────────────────────────────────
   try {
     await message.channel.sendTyping();
-    const reply = await getGroqReply(message.content);
+    const reply = await getGroqReply(message.author.id, content);
     await message.reply(reply);
   } catch (err) {
     logger.error('Groq request failed:', err);
@@ -153,8 +220,7 @@ client.once(Events.ClientReady, (c) => {
 
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
-  if (!message.guild) return; // Ignore DMs
-
+  if (!message.guild)     return; // Ignore DMs
   try {
     await handleMessage(message);
   } catch (err) {
@@ -167,33 +233,58 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   // ── /ping ──────────────────────────────────────────────────────────────────
   if (interaction.commandName === 'ping') {
-    await interaction.reply({ content: '🏓 Pong!', ephemeral: true });
+    const latency = Date.now() - interaction.createdTimestamp;
+    await interaction.reply({ content: `🏓 Pong! Latency: **${latency}ms**`, ephemeral: true });
     return;
   }
 
-  // ── /create ────────────────────────────────────────────────────────────────
+  // ── /ask <question> ───────────────────────────────────────────────────────
+  if (interaction.commandName === 'ask') {
+    const question = interaction.options.getString('question');
+    if (!question) {
+      return interaction.reply({ content: '❌ Please provide a question.', ephemeral: true });
+    }
+    if (isRateLimited(interaction.user.id)) {
+      return interaction.reply({ content: '⏳ You\'re sending too many requests. Slow down!', ephemeral: true });
+    }
+    await interaction.deferReply();
+    try {
+      const reply = await getGroqReply(interaction.user.id, question);
+      await interaction.editReply(reply);
+    } catch (err) {
+      logger.error('Groq request (slash) failed:', err);
+      await interaction.editReply('⚠️ Could not process your request right now.');
+    }
+    return;
+  }
+
+  // ── /create <url> ─────────────────────────────────────────────────────────
   if (interaction.commandName === 'create') {
     const url = interaction.options.getString('url');
     if (!url) {
       return interaction.reply({ content: '❌ Please provide a valid URL.', ephemeral: true });
     }
-    // Stub — replace with real URL shortener logic if needed
-    await interaction.reply(`🔗 Here is your short URL: ${url}`);
+    await interaction.deferReply();
+    try {
+      const short = await shortenUrl(url);
+      if (!short) return interaction.editReply('❌ That doesn\'t look like a valid URL.');
+      await interaction.editReply(`🔗 Short URL: ${short}`);
+    } catch (err) {
+      logger.error('URL shortener (slash) failed:', err);
+      await interaction.editReply('❌ Could not shorten that URL right now.');
+    }
     return;
   }
 
-  // ── /delete-chat ───────────────────────────────────────────────────────────
+  // ── /delete-chat ──────────────────────────────────────────────────────────
   if (interaction.commandName === 'delete-chat') {
     if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageMessages)) {
       return interaction.reply({ content: '❌ You do not have permission to delete messages.', ephemeral: true });
     }
-
-    // Defer so Discord doesn't time out while we bulk-delete
     await interaction.deferReply({ ephemeral: true });
-
     try {
       const totalDeleted = await deleteAllMessages(interaction.channel);
-      await interaction.editReply(`✅ Chat cleared! Deleted ${totalDeleted} message(s).`);
+      await interaction.editReply(`✅ Chat cleared! Deleted **${totalDeleted}** message(s).`);
     } catch (err) {
       logger.error('bulkDelete (slash) failed:', err);
       await interaction.editReply('❌ Failed to delete messages. Make sure I have **Manage Messages** permission.');
@@ -204,7 +295,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────
 async function shutdown(signal) {
-  logger.info(`Received ${signal}. Shutting down...`);
+  logger.info(`Received ${signal}. Shutting down…`);
   client.destroy();
   process.exit(0);
 }
