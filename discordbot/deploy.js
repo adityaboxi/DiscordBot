@@ -6,7 +6,7 @@ require('dotenv').config();
 
 const { REST, Routes, ApplicationCommandOptionType, PermissionFlagsBits } = require('discord.js');
 
-// ─── Validate Env ─────────────────────────────────────────────────────────────
+// ─── Validate Env ──────────────────────────────────────────────────────
 const REQUIRED_ENV = ['DISCORD_TOKEN', 'CLIENT_ID'];
 for (const key of REQUIRED_ENV) {
   if (!process.env[key]) {
