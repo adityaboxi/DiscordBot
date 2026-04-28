@@ -36,8 +36,16 @@ const commands = [
     },
     {
         name: 'delete-chat',
-        description: 'Bulk delete messages (up to 14 days old)',
+        description: 'Bulk delete messages (up to 100, only messages from last 14 days)',
         default_member_permissions: String(PermissionFlagsBits.ManageMessages),
+        options: [{
+            name: 'amount',
+            description: 'Number of messages to delete (1-100)',
+            type: ApplicationCommandOptionType.Integer,
+            required: false,
+            min_value: 1,
+            max_value: 100,
+        }],
     },
 ];
 
