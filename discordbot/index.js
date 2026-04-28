@@ -4,7 +4,7 @@ const { Client, GatewayIntentBits, Events, PermissionFlagsBits } = require('disc
 const { OpenAI } = require('openai');
 
 // --- Validate env vars early ---
-const REQUIRED_ENV = ['GROQ_API_KEY', 'DISCORD_TOKEN'];
+const REQUIRED_ENV = ['XAI_API_KEY', 'DISCORD_TOKEN'];
 for (const key of REQUIRED_ENV) {
     if (!process.env[key]) {
         console.error(`[FATAL] Missing ${key} in .env`);
@@ -14,7 +14,7 @@ for (const key of REQUIRED_ENV) {
 
 // --- Initialize Grok (xAI) ---
 const grok = new OpenAI({
-    apiKey: process.env.GROQ_API_KEY,
+    apiKey: process.env.XAI_API_KEY,
     baseURL: 'https://api.x.ai/v1',
 });
 
@@ -30,6 +30,33 @@ const client = new Client({
 // Cap history per user to avoid unbounded memory growth
 const MAX_HISTORY = 20;
 const conversationHistory = new Map();
+
+// --- Rate Limiting ---
+const RATE_LIMIT_WINDOW_MS = 10_000; // 10 seconds
+const RATE_LIMIT_MAX = 20;            // max 3 requests per window
+const rateLimitMap = new Map();      // userId -> { count, resetAt }
+
+function isRateLimited(userId) {
+    const now = Date.now();
+    const entry = rateLimitMap.get(userId);
+
+    if (!entry || now > entry.resetAt) {
+        // Fresh window
+        rateLimitMap.set(userId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+        return false;
+    }
+
+    if (entry.count >= RATE_LIMIT_MAX) return true;
+
+    entry.count++;
+    return false;
+}
+
+function getRateLimitCooldown(userId) {
+    const entry = rateLimitMap.get(userId);
+    if (!entry) return 0;
+    return Math.ceil((entry.resetAt - Date.now()) / 1000);
+}
 
 // --- Helper: URL Shortener ---
 async function shortenUrl(longUrl) {
@@ -132,6 +159,12 @@ client.on(Events.MessageCreate, async (message) => {
             return;
         }
 
+        if (isRateLimited(message.author.id)) {
+            const secs = getRateLimitCooldown(message.author.id);
+            await message.reply(`⏳ Slow down! You're sending too fast. Try again in **${secs}s**.`);
+            return;
+        }
+
         try { await message.channel.sendTyping(); } catch (_) {}
 
         try {
@@ -183,6 +216,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.commandName === 'ask') {
+        if (isRateLimited(interaction.user.id)) {
+            const secs = getRateLimitCooldown(interaction.user.id);
+            await interaction.reply({ content: `⏳ Slow down! Try again in **${secs}s**.`, ephemeral: true });
+            return;
+        }
+
         await interaction.deferReply();
         try {
             const question = interaction.options.getString('question');
