@@ -1,19 +1,43 @@
 # 🤖 adiBot
 
-A smart Discord bot powered by **Grok AI (xAI)** that can chat, answer questions, shorten URLs, and help manage your server.
+> A smart, fast Discord bot powered by **Grok AI (xAI)** — built to chat, assist, and manage your server.
 
 ---
 
 ## ✨ Features
 
-| Feature | Description |
+- 💬 **AI Chat** — Powered by Grok (`grok-beta`), adiBot answers anything intelligently
+- 🧠 **Conversation Memory** — Remembers up to 20 messages of context per user
+- 🛡️ **Rate Limiting** — Max 3 AI requests per 10 seconds per user to prevent spam
+- 🔗 **URL Shortener** — Instantly shorten any link via `/create`
+- 🗑️ **Chat Cleaner** — Bulk-delete up to 100 messages with one command
+- 🏓 **Ping** — Check bot and API latency anytime
+- ⚡ **Instant Replies** — Lightning-fast responses for greetings and common phrases
+- 🔒 **Permission Guards** — Moderation commands locked to users with the right permissions
+
+---
+
+## 💡 Commands
+
+### Prefix Commands (type in chat)
+
+| Command | Description |
 |--------|-------------|
-| 💬 **AI Chat** | Ask anything and get intelligent replies powered by Grok AI |
-| 🔗 **URL Shortener** | Shorten any long URL instantly via `/create` |
-| 🗑️ **Chat Cleaner** | Bulk-delete messages with `!delete chat` or `/delete-chat` |
-| ⚡ **Instant Replies** | Fast responses for common greetings and commands |
-| 🧠 **Memory** | Remembers conversation context per user |
-| 🏓 **Ping Command** | Check bot latency with `/ping` |
+| `hello` / `hi` / `hey` | Get a friendly greeting |
+| `name?` / `who are you?` | Learn about adiBot |
+| `help` / `!help` | Show all commands |
+| `!ask <question>` | Ask Grok AI anything |
+| `!ping` | Check if the bot is alive |
+| `!delete chat` | Bulk-delete messages *(requires Manage Messages)* |
+
+### Slash Commands
+
+| Command | Description |
+|--------|-------------|
+| `/ask <question>` | Ask Grok AI anything |
+| `/create <url>` | Shorten a URL via TinyURL |
+| `/ping` | Check bot + API latency |
+| `/delete-chat [amount]` | Delete 1–100 messages *(requires Manage Messages)* |
 
 ---
 
@@ -23,70 +47,60 @@ A smart Discord bot powered by **Grok AI (xAI)** that can chat, answer questions
 
 ---
 
-## 🆕 New to Discord? Start Here!
+## 🆕 New to Discord? Start Here
 
 ### Step 1 — Create a Discord Account
-1. Go to [https://discord.com](https://discord.com)
-2. Click **"Open Discord in your browser"** or download the app
-3. Click **"Register"** and fill in your email, username, password, and date of birth
-4. Verify your email by clicking the link Discord sends you
+1. Go to [discord.com](https://discord.com) and click **Register**
+2. Fill in your email, username, password, and date of birth
+3. Verify your email via the link Discord sends you
 
 ### Step 2 — Create Your Own Server
-1. After logging in, look at the left sidebar
-2. Click the ➕ at the bottom of the server list
-3. Choose **"Create My Own"** → **"For me and my friends"**
-4. Give your server a name and click **"Create"**
+1. In the left sidebar, click the **➕** at the bottom
+2. Choose **"Create My Own"** → **"For me and my friends"**
+3. Name your server and click **Create**
 
-✅ You now have your own Discord server!
+### Step 3 — Add adiBot
+1. Click the invite link above
+2. Select your server under **"Add to Server"**
+3. Click **Continue** → **Authorize** → complete CAPTCHA if prompted
 
-### Step 3 — Add adiBot to Your Server
-1. Click the invite link: 👉 **[Add adiBot](#)**
-2. Under **"Add to Server"**, select your server
-3. Click **"Continue"** → review permissions → click **"Authorize"**
-4. Complete the CAPTCHA if asked
-
-🎉 adiBot is now in your server!
-
-### Step 4 — Start Chatting with adiBot
-
-Open any text channel and try these:
-
-| Message | Response |
-|--------|----------|
-| `hello` / `hi` / `hey` | Friendly greeting reply |
-| `name?` | Bot tells you its name |
-| `!ask <question>` | AI-powered reply from Grok |
-| `/ask <question>` | Same as above via slash command |
-| `/create <url>` | Shortens a URL via TinyURL |
-| `!delete chat` | Clears the channel (admin only) |
-| `/delete-chat` | Same as above via slash command |
-| `/ping` | Responds with 🏓 Pong! + latency |
+### Step 4 — Start Chatting
+Open any text channel and try `hello` or `!ask What can you do?` 🎉
 
 ---
 
-## 🔒 Permissions Explained
+## 🔒 Permissions
 
-| Permission | Why it needs it |
-|-----------|----------------|
-| Read Messages | To see what you type |
-| Send Messages | To reply to you |
-| Manage Messages | To delete chat when asked |
-| Use Slash Commands | For `/ping`, `/ask`, `/create`, `/delete-chat` |
+| Permission | Reason |
+|-----------|--------|
+| Read Messages | To receive your messages |
+| Send Messages | To reply in channels |
+| Manage Messages | To bulk-delete chat when requested |
+| Use Slash Commands | To power `/ask`, `/create`, `/ping`, `/delete-chat` |
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **[Discord.js](https://discord.js.org/)** — Discord API wrapper
-- **[Grok AI (xAI)](https://x.ai/)** — AI model powering responses
-- **[OpenAI SDK](https://www.npmjs.com/package/openai)** — Used as the xAI-compatible API client
-- **[TinyURL API](https://tinyurl.com/)** — URL shortening
-- **[Node.js](https://nodejs.org/)** — Runtime environment
-- **[nodemon](https://nodemon.io/)** — Dev auto-restart
+| Tool | Purpose |
+|------|---------|
+| [Discord.js](https://discord.js.org/) | Discord API wrapper |
+| [Grok AI — xAI](https://x.ai/) | AI model powering responses |
+| [OpenAI SDK](https://npmjs.com/package/openai) | xAI-compatible API client |
+| [TinyURL API](https://tinyurl.com/) | URL shortening |
+| [Node.js](https://nodejs.org/) | Runtime environment |
+| [nodemon](https://nodemon.io/) | Dev auto-restart |
 
 ---
 
 ## 🚀 Self-Hosting
+
+### Prerequisites
+- Node.js v18+
+- A Discord bot token — [Discord Developer Portal](https://discord.com/developers/applications)
+- A Grok API key — [console.x.ai](https://console.x.ai)
+
+### Setup
 
 ```bash
 # 1. Clone the repo
@@ -96,29 +110,46 @@ cd adibot
 # 2. Install dependencies
 npm install
 
-# 3. Set up environment variables
+# 3. Configure environment
 cp .env.example .env
-# Fill in DISCORD_TOKEN, CLIENT_ID, and XAI_API_KEY
-
-# 4. Deploy slash commands (one time only)
-node deploy.js
-
-# 5. Start the bot
-npm run dev
+# Edit .env with your keys
 ```
 
-### `.env` format
+### `.env`
+
 ```env
 DISCORD_TOKEN=your_discord_bot_token
 CLIENT_ID=your_application_client_id
 XAI_API_KEY=your_xai_api_key
 ```
 
+### Run
+
+```bash
+# Deploy slash commands (only needed once, or when commands change)
+node deploy.js
+
+# Start the bot
+npm run dev
+```
+
+---
+
+## ⚙️ Configuration
+
+You can tweak these values at the top of `index.js`:
+
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `MAX_HISTORY` | `20` | Messages of context remembered per user |
+| `RATE_LIMIT_MAX` | `3` | Max AI requests per window |
+| `RATE_LIMIT_WINDOW_MS` | `10000` | Rate limit window in milliseconds |
+
 ---
 
 ## 📬 Support
 
-Having issues? [Open an Issue](../../issues) on this repo and I'll look into it!
+Found a bug or have a suggestion? [Open an Issue](../../issues) and I'll look into it!
 
 ---
 
