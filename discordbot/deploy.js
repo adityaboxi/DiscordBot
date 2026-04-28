@@ -2,7 +2,7 @@
 require('dotenv').config();
 const { REST, Routes, ApplicationCommandOptionType, PermissionFlagsBits } = require('discord.js');
 
-const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID } = process.env;
+const { DISCORD_TOKEN, CLIENT_ID } = process.env;
 
 if (!DISCORD_TOKEN || !CLIENT_ID) {
     console.error('[FATAL] Missing DISCORD_TOKEN or CLIENT_ID in .env');
@@ -16,7 +16,7 @@ const commands = [
     },
     {
         name: 'ask',
-        description: 'Ask the Groq AI a question',
+        description: 'Ask the Grok AI a question',
         options: [{
             name: 'question',
             description: 'Your question for the AI',
@@ -53,13 +53,9 @@ const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
 
 (async () => {
     try {
-        const route = GUILD_ID 
-            ? Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID) 
-            : Routes.applicationCommands(CLIENT_ID);
-
-        console.log(`[INFO] Registering ${commands.length} commands...`);
-        await rest.put(route, { body: commands });
-        console.log('[SUCCESS] Commands deployed successfully.');
+        console.log(`[INFO] Registering ${commands.length} commands globally...`);
+        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+        console.log('[SUCCESS] Commands deployed globally. May take up to 1 hour to appear.');
     } catch (error) {
         console.error('[ERROR] Deployment failed:', error);
     }
