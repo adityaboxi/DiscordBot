@@ -1,15 +1,24 @@
 {
-  "name": "discord-bot",
+  "name": "discored-bot",
   "version": "1.0.0",
+  "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "deploy": "node deploy.js",
+    "dev": "nodemon index.js",
+    "setup": "npm install && node deploy.js"
   },
-    "dependencies": {
-    "discord.js": "^14.11.0",
-    "dotenv": "^16.0.3",
-    "groq-sdk": "^0.3.3",
-    "express": "^4.18.2"
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "discord.js": "^14.26.3",
+    "dotenv": "^17.4.2",
+    "groq-sdk": "^1.1.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
-
 }
