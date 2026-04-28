@@ -33,7 +33,7 @@ const conversationHistory = new Map();
 
 // --- Rate Limiting ---
 const RATE_LIMIT_WINDOW_MS = 10_000; // 10 seconds
-const RATE_LIMIT_MAX = 3;            // max 3 requests per window
+const RATE_LIMIT_MAX = 20;            // max 20 requests per window
 const rateLimitMap = new Map();      // userId -> { count, resetAt }
 
 function isRateLimited(userId) {
