@@ -1,9 +1,24 @@
 'use strict';
 require('dotenv').config();
-const { Client, GatewayIntentBits, Events, PermissionFlagsBits, Collection } = require('discord.js');
-const Groq = require('groq-sdk');
+const { Client, GatewayIntentBits, Events, PermissionFlagsBits } = require('discord.js');
+const { OpenAI } = require('openai');
 
-// --- Initialization ---
+// --- Validate env vars early ---
+const REQUIRED_ENV = ['GROQ_API_KEY', 'DISCORD_TOKEN'];
+for (const key of REQUIRED_ENV) {
+    if (!process.env[key]) {
+        console.error(`[FATAL] Missing ${key} in .env`);
+        process.exit(1);
+    }
+}
+
+// --- Initialize Grok (xAI) ---
+const grok = new OpenAI({
+    apiKey: process.env.GROQ_API_KEY,
+    baseURL: 'https://api.x.ai/v1',
+});
+
+// --- Discord Client ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -12,206 +27,221 @@ const client = new Client({
     ],
 });
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// Cap history per user to avoid unbounded memory growth
+const MAX_HISTORY = 20;
 const conversationHistory = new Map();
-
-if (!process.env.GROQ_API_KEY) {
-    console.error('[FATAL] Missing GROQ_API_KEY in .env');
-    process.exit(1);
-}
 
 // --- Helper: URL Shortener ---
 async function shortenUrl(longUrl) {
     try {
-        new URL(longUrl);
+        new URL(longUrl); // validate URL format
         const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`);
         return res.ok ? await res.text() : null;
-    } catch { 
-        return null; 
+    } catch {
+        return null;
     }
 }
 
-// --- Helper: AI Logic ---
-async function getGroqReply(userId, content) {
+// --- Helper: AI Logic with Grok ---
+async function getGrokReply(userId, content) {
     try {
         const history = conversationHistory.get(userId) || [];
         history.push({ role: 'user', content });
 
-        const completion = await groq.chat.completions.create({
-            model: 'llama-3.3-70b-versatile',
+        const completion = await grok.chat.completions.create({
+            model: 'grok-beta',
             messages: [
-                { role: 'system', content: 'You are a helpful Discord bot. Be concise.' },
-                ...history.slice(-10)
+                {
+                    role: 'system',
+                    content: 'You are adiBot, a friendly and helpful Discord AI assistant. Be concise and use emojis occasionally.',
+                },
+                ...history.slice(-10),
             ],
+            max_tokens: 1000,
         });
 
-        const reply = completion.choices[0]?.message?.content || "I'm stuck, try again!";
+        const reply = completion.choices[0]?.message?.content || "Hmm, I'm thinking... try again! 🤔";
         history.push({ role: 'assistant', content: reply });
-        conversationHistory.set(userId, history.slice(-10));
+        conversationHistory.set(userId, history.slice(-MAX_HISTORY));
         return reply;
     } catch (error) {
-        console.error('Groq API Error:', error);
-        return 'Sorry, I encountered an error. Please try again later.';
+        console.error('Grok API Error:', error);
+        return 'Sorry, I encountered an error. Please try again later! 🔧';
     }
 }
 
-// --- Event: Interaction (Slash Commands) ---
-client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-
-    // Ping command
-    if (interaction.commandName === 'ping') {
-        const latency = Date.now() - interaction.createdTimestamp;
-        await interaction.reply(`🏓 Pong! Latency: ${latency}ms | API Latency: ${Math.round(client.ws.ping)}ms`);
-        return;
-    }
-
-    // Ask command
-    if (interaction.commandName === 'ask') {
-        await interaction.deferReply();
-        try {
-            const response = await getGroqReply(interaction.user.id, interaction.options.getString('question'));
-            await interaction.editReply(response.substring(0, 2000));
-        } catch (error) {
-            console.error('Ask command error:', error);
-            await interaction.editReply('❌ An error occurred while processing your request.');
-        }
-        return;
-    }
-
-    // Create (URL shortener) command
-    if (interaction.commandName === 'create') {
-        await interaction.deferReply();
-        try {
-            const short = await shortenUrl(interaction.options.getString('url'));
-            await interaction.editReply(short ? `🔗 ${short}` : "❌ Invalid URL. Please provide a valid URL including http:// or https://");
-        } catch (error) {
-            console.error('Create command error:', error);
-            await interaction.editReply('❌ An error occurred while shortening the URL.');
-        }
-        return;
-    }
-
-    // Delete-chat command
-    if (interaction.commandName === 'delete-chat') {
-        // Double-check permissions
-        if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageMessages)) {
-            return interaction.reply({ 
-                content: '❌ You need **Manage Messages** permission to use this command!', 
-                ephemeral: true 
-            });
-        }
-
-        await interaction.deferReply({ ephemeral: true });
-        
-        try {
-            const amount = interaction.options.getInteger('amount') || 50;
-            const deleted = await interaction.channel.bulkDelete(amount, true);
-            
-            if (deleted.size === 0) {
-                await interaction.editReply('⚠️ No messages to delete (messages may be older than 14 days).');
-            } else {
-                await interaction.editReply(`✅ Deleted ${deleted.size} message${deleted.size !== 1 ? 's' : ''}.`);
-            }
-            
-            // Optional: Log to console
-            console.log(`[INFO] ${interaction.user.tag} deleted ${deleted.size} messages in #${interaction.channel.name}`);
-        } catch (error) {
-            console.error('Delete-chat error:', error);
-            let errorMessage = '❌ Failed to delete messages.';
-            if (error.code === 10008) {
-                errorMessage = '❌ Messages are too old to delete (must be less than 14 days old).';
-            }
-            await interaction.editReply(errorMessage);
-        }
-        return;
-    }
-});
-
-// --- Event: Message (Prefix Commands) ---
+// ===== MESSAGE HANDLER =====
 client.on(Events.MessageCreate, async (message) => {
-    // Ignore bot messages and non-prefix commands
-    if (message.author.bot || !message.content.startsWith('!')) return;
+    // Ignore bots
+    if (message.author.bot) return;
 
-    const args = message.content.slice(1).trim().split(/ +/);
+    // Only operate in guild text channels
+    if (!message.guild) return;
+
+    const content = message.content.trim();
+    const lower = content.toLowerCase();
+    console.log(`[DEBUG] Received: "${content}" from ${message.author.username}`);
+
+    // ===== GREETINGS =====
+    if (['hello', 'hi', 'hey'].includes(lower)) {
+        const greetings = [
+            `Hello ${message.author.username}! 👋 How can I help you?`,
+            `Hi ${message.author.username}! 👋 Nice to see you!`,
+            `Hey ${message.author.username}! 💫 Ready to chat?`,
+        ];
+        await message.reply(greetings[Math.floor(Math.random() * greetings.length)]);
+        return;
+    }
+
+    if (lower === 'tell me') {
+        await message.reply('I\'d love to tell you! Use `!ask your question` or `/ask` and I\'ll answer 🤖');
+        return;
+    }
+
+    if (['name?', 'what is your name?', 'who are you?'].includes(lower)) {
+        await message.reply('I\'m adiBot! 🤖 Created by adi, powered by Grok AI (xAI)!');
+        return;
+    }
+
+    if (lower === 'help' || lower === '!help') {
+        await message.reply(
+            '**📚 adiBot Commands:**\n\n' +
+            '**AI Chat:**\n• `!ask <question>` or `/ask` - Ask me anything\n\n' +
+            '**Utilities:**\n• `/create <url>` - Shorten a URL\n• `/ping` - Check latency\n\n' +
+            '**Moderation:**\n• `!delete chat` or `/delete-chat` - Clear channel\n\n' +
+            '**Fun:**\n• `hello`, `hi` - Say hello!\n• `name?` - Learn about me'
+        );
+        return;
+    }
+
+    // ===== PREFIX COMMANDS =====
+    if (!content.startsWith('!')) return;
+
+    const args = content.slice(1).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // Ping command
     if (command === 'ping') {
-        await message.reply('🏓 Pong!');
+        await message.reply('🏓 Pong! Bot is alive!');
         return;
     }
-    
-    // Ask command
+
     if (command === 'ask') {
         const query = args.join(' ');
         if (!query) {
-            await message.reply('❓ Please ask me something! Example: `!ask What is AI?`');
+            await message.reply('❓ Ask me something! Example: `!ask What is AI?`');
             return;
         }
-        
-        await message.channel.sendTyping();
+
+        try { await message.channel.sendTyping(); } catch (_) {}
+
         try {
-            const reply = await getGroqReply(message.author.id, query);
-            await message.reply(reply.substring(0, 2000));
+            const reply = await getGrokReply(message.author.id, query);
+            if (reply.length <= 2000) {
+                await message.reply(reply);
+            } else {
+                const chunks = reply.match(/[\s\S]{1,2000}/g) || [];
+                for (const chunk of chunks) {
+                    await message.channel.send(chunk);
+                }
+            }
         } catch (error) {
-            console.error('Ask prefix command error:', error);
-            await message.reply('❌ An error occurred while processing your request.');
+            console.error('Ask error:', error);
+            await message.reply('❌ Error! Try again.');
         }
         return;
     }
-    
-    // Delete chat command (prefix version to match README)
+
     if (command === 'delete' && args[0] === 'chat') {
-        // Check permissions
         if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-            await message.reply('❌ You need **Manage Messages** permission to use this command!');
+            await message.reply('❌ You need Manage Messages permission!');
             return;
         }
-        
+
         try {
             const fetched = await message.channel.messages.fetch({ limit: 100 });
             const deleted = await message.channel.bulkDelete(fetched, true);
-            
-            const replyMsg = await message.channel.send(`✅ Deleted ${deleted.size} message${deleted.size !== 1 ? 's' : ''}.`);
-            setTimeout(() => replyMsg.delete(), 5000);
+            const replyMsg = await message.channel.send(`✅ Deleted ${deleted.size} messages!`);
+            setTimeout(() => replyMsg.delete().catch(() => {}), 5000);
         } catch (error) {
-            console.error('Delete chat prefix error:', error);
-            let errorMessage = '❌ Failed to delete messages.';
-            if (error.code === 10008) {
-                errorMessage = '❌ Messages are too old to delete (must be less than 14 days old).';
-            }
-            await message.channel.send(errorMessage);
+            console.error('Delete error:', error);
+            await message.channel.send('❌ Failed to delete messages (must be less than 14 days old).');
         }
         return;
     }
 });
 
-// Simple greeting responses
-client.on(Events.MessageCreate, async (message) => {
-    if (message.author.bot) return;
-    
-    const content = message.content.toLowerCase();
-    if (content === 'hello' || content === 'hi') {
-        await message.reply(`Hello ${message.author.username}! 👋`);
-    } else if (content === 'name?') {
-        await message.reply(`I'm adiBot! 🤖`);
+// ===== SLASH COMMAND HANDLER =====
+client.on(Events.InteractionCreate, async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+
+    console.log(`[DEBUG] Slash command: /${interaction.commandName} from ${interaction.user.username}`);
+
+    if (interaction.commandName === 'ping') {
+        const latency = Date.now() - interaction.createdTimestamp;
+        await interaction.reply(`🏓 Pong! Latency: ${latency}ms | API: ${Math.round(client.ws.ping)}ms`);
+        return;
+    }
+
+    if (interaction.commandName === 'ask') {
+        await interaction.deferReply();
+        try {
+            const question = interaction.options.getString('question');
+            const response = await getGrokReply(interaction.user.id, question);
+            await interaction.editReply(response.substring(0, 2000));
+        } catch (error) {
+            console.error('Ask slash error:', error);
+            await interaction.editReply('❌ Oops! Something went wrong.');
+        }
+        return;
+    }
+
+    if (interaction.commandName === 'create') {
+        await interaction.deferReply();
+        try {
+            const url = interaction.options.getString('url');
+            const short = await shortenUrl(url);
+            await interaction.editReply(short ? `🔗 Shortened: ${short}` : '❌ Invalid or unsupported URL.');
+        } catch (error) {
+            console.error('Create slash error:', error);
+            await interaction.editReply('❌ Error shortening URL.');
+        }
+        return;
+    }
+
+    if (interaction.commandName === 'delete-chat') {
+        if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageMessages)) {
+            await interaction.reply({ content: '❌ No permission!', ephemeral: true });
+            return;
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        try {
+            const amount = interaction.options.getInteger('amount') ?? 50;
+            const safeAmount = Math.min(100, Math.max(1, amount));
+            const deleted = await interaction.channel.bulkDelete(safeAmount, true);
+            await interaction.editReply(`✅ Deleted ${deleted.size} messages.`);
+        } catch (error) {
+            console.error('Delete-chat slash error:', error);
+            await interaction.editReply('❌ Failed to delete messages. They may be older than 14 days.');
+        }
+        return;
     }
 });
 
-// --- Ready Event ---
-client.once(Events.ClientReady, async (c) => {
-    console.log(`✅ Ready! Logged in as ${c.user.tag}`);
+// ===== READY EVENT =====
+client.once(Events.ClientReady, (c) => {
+    console.log(`✅ ${c.user.tag} is ONLINE!`);
     console.log(`📡 Serving ${c.guilds.cache.size} server(s)`);
-    
-    // Set bot status
+    console.log(`🤖 Using AI: Grok (xAI)`);
+    console.log(`💬 Type "hello" in Discord to test!`);
+
     c.user.setPresence({
-        activities: [{ name: '!ask or /help', type: 3 }], // 'Watching' type
-        status: 'online'
+        activities: [{ name: 'Type "hello"', type: 2 }],
+        status: 'online',
     });
 });
 
-// --- Error Handling ---
+// ===== ERROR HANDLING =====
 client.on(Events.Error, (error) => {
     console.error('Discord client error:', error);
 });
@@ -220,5 +250,17 @@ process.on('unhandledRejection', (error) => {
     console.error('Unhandled promise rejection:', error);
 });
 
-// --- Login ---
+// Graceful shutdown
+process.on('SIGINT', () => {
+    console.log('[INFO] Shutting down gracefully...');
+    client.destroy();
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('[INFO] Received SIGTERM, shutting down...');
+    client.destroy();
+    process.exit(0);
+});
+
 client.login(process.env.DISCORD_TOKEN);
