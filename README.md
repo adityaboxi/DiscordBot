@@ -28,7 +28,8 @@
 | `help` / `!help` | Show all commands |
 | `!ask <question>` | Ask Grok AI anything |
 | `!ping` | Check if the bot is alive |
-| `!delete chat` | Bulk-delete messages *(requires Manage Messages)* |
+| `!clear` | Bulk-delete messages *(requires Manage Messages)* |
+| `!delete chat` | Same as `!clear` |
 
 ### Slash Commands
 
@@ -43,29 +44,81 @@
 
 ## ➕ Add adiBot to Your Server
 
-👉 **[Click here to invite adiBot](#)**
+👉 **[Click here to invite adiBot](https://discord.com/oauth2/authorize?client_id=1478646599084408853&permissions=76800&scope=bot+applications.commands)**
 
 ---
 
 ## 🆕 New to Discord? Start Here
 
+Never used Discord before? No worries — follow these steps!
+
+---
+
 ### Step 1 — Create a Discord Account
-1. Go to [discord.com](https://discord.com) and click **Register**
-2. Fill in your email, username, password, and date of birth
-3. Verify your email via the link Discord sends you
+1. Go to [discord.com](https://discord.com)
+2. Click **"Open Discord in your browser"** or download the app
+3. Click **Register** and fill in your:
+   - Email address
+   - Username *(your display name)*
+   - Password
+   - Date of birth
+4. Click **Continue**
+5. Verify your email by clicking the link Discord sends you
 
-### Step 2 — Create Your Own Server
-1. In the left sidebar, click the **➕** at the bottom
-2. Choose **"Create My Own"** → **"For me and my friends"**
-3. Name your server and click **Create**
+---
 
-### Step 3 — Add adiBot
-1. Click the invite link above
-2. Select your server under **"Add to Server"**
-3. Click **Continue** → **Authorize** → complete CAPTCHA if prompted
+### Step 2 — Download Discord *(Optional but recommended)*
+- **PC / Mac** → [discord.com/download](https://discord.com/download)
+- **iPhone** → App Store → search **"Discord"**
+- **Android** → Play Store → search **"Discord"**
+- Or just use it in your **browser** — no download needed
 
-### Step 4 — Start Chatting
-Open any text channel and try `hello` or `!ask What can you do?` 🎉
+---
+
+### Step 3 — Create Your Own Server
+1. After logging in, look at the left sidebar
+2. Click the **➕** icon at the bottom of the server list
+3. Choose **"Create My Own"**
+4. Choose **"For me and my friends"**
+5. Give your server a name and click **Create**
+
+✅ You now have your own Discord server!
+
+---
+
+### Step 4 — Add adiBot to Your Server
+1. Click this link 👉 **[Add adiBot](https://discord.com/oauth2/authorize?client_id=1478646599084408853&permissions=76800&scope=bot+applications.commands)**
+2. Log in to Discord if prompted
+3. Under **"Add to Server"** select the server you just created
+4. Click **Continue**
+5. Review the permissions and click **Authorize**
+6. Complete the CAPTCHA if asked
+
+🎉 adiBot is now in your server!
+
+---
+
+### Step 5 — Enable Developer Mode *(for slash commands)*
+1. Click the ⚙️ **Settings** icon near your username *(bottom left)*
+2. Go to **App Settings** → **Advanced**
+3. Toggle **Developer Mode** ON
+4. Close settings
+
+---
+
+### Step 6 — Start Chatting with adiBot
+1. Open your server and click any text channel *(e.g. **#general**)*
+2. Type a message and hit **Enter** — adiBot will reply!
+
+**Try these to get started:**
+
+| What to type | What happens |
+|-------------|--------------|
+| `hello` | adiBot greets you back 👋 |
+| `name?` | adiBot introduces itself 🤖 |
+| `!ask what can you do?` | AI-powered reply from Grok |
+| `/ping` | Bot replies with latency 🏓 |
+| `!clear` | Deletes messages *(admin only)* |
 
 ---
 
@@ -137,7 +190,7 @@ npm run dev
 
 ## ⚙️ Configuration
 
-You can tweak these values at the top of `index.js`:
+Tweak these values at the top of `index.js`:
 
 | Constant | Default | Description |
 |----------|---------|-------------|
